@@ -568,16 +568,88 @@ function showBanner(text, kind = "ok", ms = 900) {
   bannerTimer = setTimeout(() => { fbBanner.className = ""; }, ms);
 }
 
+/** issue label -> short spoken/visual fix (zh-TW) */
+const FIX_MAP = {
+  "膝蓋內夾": "膝蓋往外推",
+  "下背代償": "背打直，別蹲太深",
+  "上身前傾": "胸口抬高",
+  "腳跟抬起": "重心放腳跟",
+  "深度不足": "再蹲低一點",
+  "左右偏移": "重心放中間",
+  "下去太快": "下去慢一點",
+};
+
+/** Priority: safety / spine first, then balance, depth, tempo */
+const ISSUE_PRIORITY = [
+  "膝蓋內夾",
+  "下背代償",
+  "腳跟抬起",
+  "上身前傾",
+  "左右偏移",
+  "深度不足",
+  "下去太快",
+];
+
+let lastFixKey = null;
+let lastFixAtRep = -99;
+let speakChain = 0; // invalidate stale onend callbacks
+
 function speak(text, force = false) {
   if (!force && !els.chkVoice.checked) return;
   try {
     if (!window.speechSynthesis) return;
+    speakChain += 1; // invalidate pending fix callbacks
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = "zh-TW";
-    u.rate = 1.08;
+    u.rate = 1.22;
     window.speechSynthesis.speak(u);
   } catch {}
+}
+
+/** Count first, then optional short fix/praise; cancels stale queue. */
+function speakRepThen(repNum, followText) {
+  if (!els.chkVoice.checked) return;
+  try {
+    if (!window.speechSynthesis) return;
+    speakChain += 1;
+    const my = speakChain;
+    window.speechSynthesis.cancel();
+    const count = new SpeechSynthesisUtterance(String(repNum));
+    count.lang = "zh-TW";
+    count.rate = 1.28;
+    if (followText) {
+      count.onend = () => {
+        if (my !== speakChain || !els.chkVoice.checked) return;
+        try {
+          const u = new SpeechSynthesisUtterance(followText);
+          u.lang = "zh-TW";
+          u.rate = 1.25;
+          window.speechSynthesis.speak(u);
+        } catch {}
+      };
+    }
+    window.speechSynthesis.speak(count);
+  } catch {}
+}
+
+function pickPrimaryIssue(issues) {
+  for (const key of ISSUE_PRIORITY) {
+    if (issues.includes(key)) return key;
+  }
+  return issues[0] || null;
+}
+
+/** Throttle: same fix at most every 2 reps (still reminds if issue persists). */
+function shouldSpeakFix(fixKey) {
+  if (!fixKey) return false;
+  if (fixKey === lastFixKey && (session.reps - lastFixAtRep) < 2) return false;
+  return true;
+}
+
+function markFixSpoken(fixKey) {
+  lastFixKey = fixKey;
+  lastFixAtRep = session.reps;
 }
 
 function updateRing() {
@@ -717,12 +789,13 @@ function scoreRep(rep) {
 
 function issuesFromRep(rep) {
   const out = [];
-  if (!rep.depthOk) out.push("深度不足");
-  if (rep.lean >= settings.leanWarn) out.push("上身前傾");
-  if (rep.lumbarFlex >= 15) out.push("下背代償");
   if (rep.valgus) out.push("膝蓋內夾");
+  if (rep.lumbarFlex >= 15) out.push("下背代償");
   if (rep.heelLift) out.push("腳跟抬起");
+  if (rep.lean >= settings.leanWarn) out.push("上身前傾");
   if (rep.asym) out.push("左右偏移");
+  if (!rep.depthOk) out.push("深度不足");
+  if ((rep.descendSec || 0) > 0 && rep.descendSec < 0.8) out.push("下去太快");
   return out;
 }
 
@@ -817,6 +890,9 @@ function resetSessionCounters() {
   session.startedAt = new Date().toISOString();
   session.issuesSeen = {};
   session._standAnkleY = null;
+  lastFixKey = null;
+  lastFixAtRep = -99;
+  speakChain += 1;
   sessionStartPerf = performance.now();
   lastKcalTick = sessionStartPerf;
   els.repVal.textContent = "0";
@@ -880,18 +956,25 @@ function completeRep(extra) {
   els.accVal.className = "v " + (rep.score >= 85 ? "ok" : rep.score >= 65 ? "warn" : "bad");
   updateRing();
 
-  let cue, kind;
+  let cue, kind, follow = null;
   if (rep.issues.length === 0) {
     cue = "做得好！";
     kind = "ok";
-    speak(`${session.setReps}`);
-    setTimeout(() => speak("做得好"), 350);
+    follow = "做得好";
+    lastFixKey = null; // reset throttle after a clean rep
   } else {
-    cue = rep.issues[0];
-    kind = rep.issues.some(i => i === "膝蓋內夾" || i === "下背代償") ? "bad" : "warn";
-    speak(`${session.setReps}`);
-    setTimeout(() => speak(cue), 350);
+    const primary = pickPrimaryIssue(rep.issues);
+    const fix = FIX_MAP[primary] || primary;
+    cue = fix; // banner/HUD show HOW to fix
+    kind = (primary === "膝蓋內夾" || primary === "下背代償") ? "bad" : "warn";
+    if (shouldSpeakFix(primary)) {
+      follow = fix;
+      markFixSpoken(primary);
+    } else {
+      follow = null; // throttled: still show banner, skip voice fix
+    }
   }
+  speakRepThen(session.setReps, follow);
   showBanner(cue, kind);
   setCue(cue, kind);
 
@@ -1061,11 +1144,11 @@ function analyze(landmarks) {
       } else {
         if (session.state === "bottom") session.bottomTime = session.bottomTime || now;
         if (session.state === "bottom" || knee < settings.upAngle - 10) {
-          if (flex >= 15) { cue = "下背代償"; cueKind = "bad"; }
-          else if (lean >= settings.leanWarn) { cue = "上身太前傾"; cueKind = "warn"; }
-          else if (heelLift) { cue = "腳跟勿抬"; cueKind = "warn"; }
+          if (flex >= 15) { cue = FIX_MAP["下背代償"]; cueKind = "bad"; }
+          else if (lean >= settings.leanWarn) { cue = FIX_MAP["上身前傾"]; cueKind = "warn"; }
+          else if (heelLift) { cue = FIX_MAP["腳跟抬起"]; cueKind = "warn"; }
           else if (depthNow) { cue = "深度OK"; cueKind = "ok"; }
-          else { cue = "再蹲低一點"; cueKind = "warn"; }
+          else { cue = FIX_MAP["深度不足"]; cueKind = "warn"; }
         } else {
           cue = "開始下蹲";
         }
@@ -1123,10 +1206,10 @@ function analyze(landmarks) {
       els.stateChip.textContent = "站立";
       completeRep({ valgus, asym });
     } else {
-      if (valgus) { cue = "膝蓋內夾"; cueKind = "bad"; }
-      else if (asym) { cue = "重心偏移"; cueKind = "warn"; }
+      if (valgus) { cue = FIX_MAP["膝蓋內夾"]; cueKind = "bad"; }
+      else if (asym) { cue = FIX_MAP["左右偏移"]; cueKind = "warn"; }
       else if (session.state === "bottom" || knee < settings.upAngle - 10) {
-        cue = depthNow ? "深度OK" : "再蹲低一點";
+        cue = depthNow ? "深度OK" : FIX_MAP["深度不足"];
         cueKind = depthNow ? "ok" : "warn";
       } else {
         cue = "開始下蹲";
@@ -1467,7 +1550,7 @@ updateRing();
 
 window.__squatCoach = {
   angleDeg, torsoLeanDeg, lumbarFlexProxy, estimateLumbar, scoreRep,
-  settings, loadHistory, version: "2.0.0"
+  settings, loadHistory, version: "2.1.0"
 };
 </script>
 </body>
