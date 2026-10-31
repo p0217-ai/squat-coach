@@ -103,11 +103,28 @@
     padding: 6px 10px; display: flex; justify-content: space-between; align-items: center;
     backdrop-filter: blur(10px);
   }
-  .badge .k { color: var(--muted); font-size: 11px; font-weight: 700; }
+  .badge .k { color: var(--muted); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
   .badge .v { font-weight: 900; font-size: 18px; }
   .badge .v.ok { color: var(--ok); }
   .badge .v.warn { color: var(--warn); }
   .badge .v.bad { color: var(--bad); }
+  .info-i {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: rgba(255,255,255,0.14); color: var(--muted);
+    font-size: 11px; font-weight: 800; font-style: normal;
+    border: 1px solid var(--line); cursor: pointer; line-height: 1;
+    padding: 0; flex-shrink: 0;
+  }
+  .info-i:active, .info-i:focus { background: var(--accent); color: #062016; border-color: transparent; outline: none; }
+  .hint-toast {
+    position: absolute; left: 12px; right: 12px; top: 88px; z-index: 12;
+    background: rgba(18,26,43,0.94); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px; font-size: 13px; line-height: 1.45; color: var(--text);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35); pointer-events: none;
+    opacity: 0; transform: translateY(-6px); transition: opacity 0.18s, transform 0.18s;
+  }
+  .hint-toast.show { opacity: 1; transform: translateY(0); }
   #cue {
     margin: 8px; text-align: center; font-size: clamp(26px, 8vw, 48px);
     font-weight: 900; text-shadow: 0 2px 12px rgba(0,0,0,0.75);
@@ -212,6 +229,7 @@
     <video id="video" playsinline muted></video>
     <canvas id="canvas"></canvas>
     <div id="fbBanner"></div>
+    <div class="hint-toast" id="hintToast" role="status"></div>
     <div id="restOverlay">
       <div class="rtitle">組間休息</div>
       <div class="rtime" id="restTime">60</div>
@@ -242,8 +260,8 @@
         </div>
       </div>
       <div class="badge-col">
-        <div class="badge"><span class="k">本下品質</span><span class="v" id="accVal">—</span></div>
-        <div class="badge"><span class="k">AI 積分</span><span class="v" id="scoreVal">0</span></div>
+        <div class="badge"><span class="k">這下動作分數 <button type="button" class="info-i" id="hintAcc" aria-label="說明這下動作分數">i</button></span><span class="v" id="accVal">—</span></div>
+        <div class="badge"><span class="k">今天累積分數 <button type="button" class="info-i" id="hintScore" aria-label="說明今天累積分數">i</button></span><span class="v" id="scoreVal">0</span></div>
       </div>
     </div>
 
@@ -323,6 +341,14 @@
         <input type="number" id="inpWeight" min="30" max="200" step="0.5" value="70" />
       </div>
       <div class="field">
+        <label>語音（建議台灣女聲）</label>
+        <select id="selVoice" style="width:100%"></select>
+        <div class="row" style="margin-top:8px">
+          <button type="button" id="btnTestVoice" class="grow">試聽：第1下，做得好</button>
+        </div>
+        <p class="tiny" style="margin:6px 0 0">預設挑年輕台灣女聲；若清單是空的，等系統載入語音後會自動更新。</p>
+      </div>
+      <div class="field">
         <label>蹲下判定角度&nbsp;<span id="downLabel">100</span>°</label>
         <input type="range" id="rngDown" min="70" max="130" value="100" />
       </div>
@@ -391,6 +417,9 @@ const els = {
   kcalVal: document.getElementById("kcalVal"),
   accVal: document.getElementById("accVal"),
   scoreVal: document.getElementById("scoreVal"),
+  hintAcc: document.getElementById("hintAcc"),
+  hintScore: document.getElementById("hintScore"),
+  hintToast: document.getElementById("hintToast"),
   ringFg: document.getElementById("ringFg"),
   ringNum: document.getElementById("ringNum"),
   ringSetLab: document.getElementById("ringSetLab"),
@@ -424,6 +453,8 @@ const els = {
   rngSets: document.getElementById("rngSets"),
   rngRest: document.getElementById("rngRest"),
   inpWeight: document.getElementById("inpWeight"),
+  selVoice: document.getElementById("selVoice"),
+  btnTestVoice: document.getElementById("btnTestVoice"),
   downLabel: document.getElementById("downLabel"),
   upLabel: document.getElementById("upLabel"),
   depthLabel: document.getElementById("depthLabel"),
@@ -499,9 +530,10 @@ function loadSettings() {
       sets: raw.sets ?? 3,
       restSec: raw.restSec ?? 60,
       weightKg: raw.weightKg ?? 70,
+      voiceURI: raw.voiceURI ?? "",
     };
   } catch {
-    return { downAngle: 100, upAngle: 160, depthAngle: 90, leanWarn: 35, targetReps: 12, sets: 3, restSec: 60, weightKg: 70 };
+    return { downAngle: 100, upAngle: 160, depthAngle: 90, leanWarn: 35, targetReps: 12, sets: 3, restSec: 60, weightKg: 70, voiceURI: "" };
   }
 }
 function saveSettings() {
@@ -543,12 +575,12 @@ function renderHistory() {
   const rows = list.map(s => `<tr>
     <td>${escapeHtml(s.date)}</td>
     <td>${s.reps}</td>
-    <td>${s.avgAcc ?? "—"}%</td>
+    <td>${s.avgAcc ?? "—"}</td>
     <td>${s.aiScore ?? "—"}</td>
     <td>${s.kcal ?? "—"}</td>
   </tr>`).join("");
   els.histTableWrap.innerHTML = `<table>
-    <thead><tr><th>日期</th><th>次數</th><th>均品質</th><th>積分</th><th>kcal</th></tr></thead>
+    <thead><tr><th>日期</th><th>次數</th><th>均動作分</th><th>累積分</th><th>kcal</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 function escapeHtml(s) {
@@ -592,17 +624,115 @@ const ISSUE_PRIORITY = [
 
 let lastFixKey = null;
 let lastFixAtRep = -99;
-let speakChain = 0; // invalidate stale onend callbacks
+let speakChain = 0;
+let cachedVoices = [];
+let selectedVoice = null;
+
+const FEMALE_HINT = /female|女|woman|mei-?jia|meijia|hanhan|ya?ting|hsiao.?chen|hsiaoyu|xiao.?chen|xiao.?yu|ting-?ting|yating|google 國語\(臺灣\)|google\s*國語|taiwan.*female|microsoft.?hsiao|microsoft.?hanhan|美佳|曉臻|曉雨|雅婷|涵涵/i;
+
+function listZhVoices() {
+  if (!window.speechSynthesis) return [];
+  const all = window.speechSynthesis.getVoices() || [];
+  cachedVoices = all;
+  return all.filter(v => {
+    const lang = (v.lang || "").toLowerCase();
+    return lang.startsWith("zh") || /chinese|中文|國語|台[灣湾]|cantonese|粵/i.test(v.name);
+  });
+}
+
+function scoreVoice(v) {
+  const lang = (v.lang || "").toLowerCase();
+  const name = v.name || "";
+  let s = 0;
+  if (lang === "zh-tw" || lang === "zh_tw") s += 100;
+  else if (lang.startsWith("zh-tw") || lang.startsWith("zh_tw")) s += 90;
+  else if (lang === "zh-hk" || lang.startsWith("zh-hk")) s += 40;
+  else if (lang.startsWith("zh-cn") || lang.startsWith("zh_cn")) s += 20;
+  else if (lang.startsWith("zh")) s += 30;
+  if (FEMALE_HINT.test(name)) s += 50;
+  if (/台灣|台湾|taiwan|國語\(臺灣\)|zh-tw/i.test(name)) s += 25;
+  if (/male|男|man|david|danny|yun.?jie/i.test(name) && !FEMALE_HINT.test(name)) s -= 40;
+  return s;
+}
+
+function pickDefaultVoice(voices) {
+  if (!voices.length) return null;
+  return [...voices].sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
+}
+
+function resolveVoice() {
+  const voices = listZhVoices();
+  if (!voices.length) {
+    selectedVoice = null;
+    return null;
+  }
+  if (settings.voiceURI) {
+    const saved = voices.find(v => v.voiceURI === settings.voiceURI);
+    if (saved) { selectedVoice = saved; return saved; }
+  }
+  const best = pickDefaultVoice(voices);
+  selectedVoice = best;
+  return best;
+}
+
+function applyVoice(u) {
+  const v = resolveVoice();
+  u.lang = (v && v.lang) || "zh-TW";
+  if (v) u.voice = v;
+  u.rate = 1.15;
+  u.pitch = 1.2;
+  return u;
+}
+
+function populateVoiceSelect() {
+  if (!els.selVoice) return;
+  const voices = listZhVoices();
+  const prev = settings.voiceURI || (els.selVoice.value || "");
+  els.selVoice.innerHTML = "";
+  if (!voices.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "（尚無中文語音，稍後自動更新）";
+    els.selVoice.appendChild(opt);
+    return;
+  }
+  const ranked = [...voices].sort((a, b) => scoreVoice(b) - scoreVoice(a));
+  for (const v of ranked) {
+    const opt = document.createElement("option");
+    opt.value = v.voiceURI;
+    const tag = FEMALE_HINT.test(v.name) ? "女" : "·";
+    opt.textContent = `[${tag}] ${v.name} (${v.lang})`;
+    els.selVoice.appendChild(opt);
+  }
+  const best = pickDefaultVoice(voices);
+  const want = prev && ranked.some(v => v.voiceURI === prev) ? prev : (best ? best.voiceURI : "");
+  els.selVoice.value = want;
+  if (!settings.voiceURI && best) {
+    settings.voiceURI = best.voiceURI;
+  }
+  resolveVoice();
+}
+
+function initVoices() {
+  populateVoiceSelect();
+  if (!window.speechSynthesis) return;
+  // Chrome loads voices async
+  window.speechSynthesis.addEventListener("voiceschanged", () => {
+    populateVoiceSelect();
+  });
+  // Some Android need a kick
+  try { window.speechSynthesis.getVoices(); } catch {}
+  setTimeout(populateVoiceSelect, 250);
+  setTimeout(populateVoiceSelect, 1000);
+}
 
 function speak(text, force = false) {
   if (!force && !els.chkVoice.checked) return;
   try {
     if (!window.speechSynthesis) return;
-    speakChain += 1; // invalidate pending fix callbacks
+    speakChain += 1;
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "zh-TW";
-    u.rate = 1.22;
+    const u = applyVoice(new SpeechSynthesisUtterance(text));
     window.speechSynthesis.speak(u);
   } catch {}
 }
@@ -617,9 +747,7 @@ function speakRepThen(repNum, followText) {
     const text = followText
       ? `第${repNum}下，${followText}`
       : `第${repNum}下`;
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = "zh-TW";
-    u.rate = 1.28;
+    const u = applyVoice(new SpeechSynthesisUtterance(text));
     window.speechSynthesis.speak(u);
   } catch {}
 }
@@ -943,7 +1071,7 @@ function completeRep(extra) {
 
   els.repVal.textContent = String(session.reps);
   els.scoreVal.textContent = String(session.aiScore);
-  els.accVal.textContent = rep.score + "%";
+  els.accVal.textContent = String(rep.score);
   els.accVal.className = "v " + (rep.score >= 85 ? "ok" : rep.score >= 65 ? "warn" : "bad");
   updateRing();
 
@@ -1066,7 +1194,7 @@ function finishAndSaveSession() {
   renderHistory();
   showSummary(rec);
   setCue(`已儲存 ${rec.reps} 下`, "ok");
-  speak(`完成 ${rec.reps} 下，積分 ${rec.aiScore}`);
+  speak(`完成 ${rec.reps} 下，累積 ${rec.aiScore} 分`);
 }
 
 function showSummary(rec) {
@@ -1078,7 +1206,7 @@ function showSummary(rec) {
     </div>`;
   }).join("");
   els.summaryBody.innerHTML = `
-    <p><b>${rec.reps}</b> 下　均品質 <b>${rec.avgAcc ?? "—"}%</b>　積分 <b>${rec.aiScore}</b></p>
+    <p><b>${rec.reps}</b> 下　平均動作分數 <b>${rec.avgAcc ?? "—"}</b>　今天累積分數 <b>${rec.aiScore}</b></p>
     <p class="tiny">熱量（估） ${rec.kcal} kcal　心率 ${rec.avgHr ?? "—"} bpm　主要問題：${escapeHtml(rec.mainIssues || "無")}</p>
     <div class="rep-list">${items || '<p class="tiny">無逐下資料</p>'}</div>
   `;
@@ -1476,7 +1604,28 @@ els.btnRec.addEventListener("click", () => {
   if (!wantRecord) stopRecorder();
 });
 
-els.btnSettings.addEventListener("click", () => els.settingsModal.classList.add("show"));
+
+let hintTimer = 0;
+function showHint(text) {
+  if (!els.hintToast) return;
+  els.hintToast.textContent = text;
+  els.hintToast.classList.add("show");
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => els.hintToast.classList.remove("show"), 3200);
+}
+els.hintAcc?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  showHint("這下動作分數：看深度、背、膝蓋、速度評分（0–100）。");
+});
+els.hintScore?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  showHint("今天累積分數：每下動作分數加總。");
+});
+
+els.btnSettings.addEventListener("click", () => {
+  populateVoiceSelect();
+  els.settingsModal.classList.add("show");
+});
 els.btnCloseSettings.addEventListener("click", () => {
   settings.downAngle = Number(els.rngDown.value);
   settings.upAngle = Number(els.rngUp.value);
@@ -1486,12 +1635,33 @@ els.btnCloseSettings.addEventListener("click", () => {
   settings.sets = Number(els.rngSets.value);
   settings.restSec = Number(els.rngRest.value);
   settings.weightKg = Number(els.inpWeight.value) || 70;
+  settings.voiceURI = els.selVoice.value || "";
   if (settings.downAngle >= settings.upAngle - 20) {
     settings.downAngle = Math.min(settings.downAngle, settings.upAngle - 30);
   }
+  resolveVoice();
   syncSettingUI();
   saveSettings();
   els.settingsModal.classList.remove("show");
+});
+
+els.selVoice.addEventListener("change", () => {
+  settings.voiceURI = els.selVoice.value || "";
+  resolveVoice();
+  saveSettings();
+});
+
+els.btnTestVoice.addEventListener("click", () => {
+  settings.voiceURI = els.selVoice.value || settings.voiceURI || "";
+  resolveVoice();
+  // force speak even if mute, for testing voice
+  try {
+    if (!window.speechSynthesis) return;
+    speakChain += 1;
+    window.speechSynthesis.cancel();
+    const u = applyVoice(new SpeechSynthesisUtterance("第1下，做得好"));
+    window.speechSynthesis.speak(u);
+  } catch {}
 });
 els.btnCloseSummary.addEventListener("click", () => els.summaryModal.classList.remove("show"));
 
@@ -1509,7 +1679,7 @@ els.btnCloseSummary.addEventListener("click", () => els.summaryModal.classList.r
 
 els.btnExport.addEventListener("click", () => {
   const list = loadHistory();
-  const header = "date,reps,sets,avgDepth,bestDepth,avgLean,avgAcc,aiScore,kcal,avgHr,view,mainIssues\n";
+  const header = "日期,次數,組數,平均深度,最深,平均前傾,平均動作分數,今天累積分數,熱量kcal,心率,檢視,主要問題\n";
   const body = list.map(s =>
     [s.date, s.reps, s.sets ?? "", s.avgDepth ?? "", s.bestDepth ?? "", s.avgLean ?? "",
       s.avgAcc ?? "", s.aiScore ?? "", s.kcal ?? "", s.avgHr ?? "", s.view ?? "", s.mainIssues ?? ""]
@@ -1538,10 +1708,11 @@ window.addEventListener("orientationchange", () => setTimeout(resizeCanvas, 300)
 
 renderHistory();
 updateRing();
+initVoices();
 
 window.__squatCoach = {
   angleDeg, torsoLeanDeg, lumbarFlexProxy, estimateLumbar, scoreRep,
-  settings, loadHistory, version: "2.1.1"
+  settings, loadHistory, pickDefaultVoice, scoreVoice, version: "2.2.0"
 };
 </script>
 </body>
