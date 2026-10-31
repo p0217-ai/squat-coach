@@ -260,8 +260,8 @@
         </div>
       </div>
       <div class="badge-col">
-        <div class="badge"><span class="k">這下動作分數 <button type="button" class="info-i" id="hintAcc" aria-label="說明這下動作分數">i</button></span><span class="v" id="accVal">—</span></div>
-        <div class="badge"><span class="k">今天累積分數 <button type="button" class="info-i" id="hintScore" aria-label="說明今天累積分數">i</button></span><span class="v" id="scoreVal">0</span></div>
+        <div class="badge"><span class="k">本次動作分數 <button type="button" class="info-i" id="hintAcc" aria-label="說明本次動作分數">i</button></span><span class="v" id="accVal">—</span></div>
+        <div class="badge"><span class="k">累積動作分數 <button type="button" class="info-i" id="hintScore" aria-label="說明累積動作分數">i</button></span><span class="v" id="scoreVal">0</span></div>
       </div>
     </div>
 
@@ -580,7 +580,7 @@ function renderHistory() {
     <td>${s.kcal ?? "—"}</td>
   </tr>`).join("");
   els.histTableWrap.innerHTML = `<table>
-    <thead><tr><th>日期</th><th>次數</th><th>均動作分</th><th>累積分</th><th>kcal</th></tr></thead>
+    <thead><tr><th>日期</th><th>次數</th><th>均本次分</th><th>累積動作分</th><th>kcal</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 function escapeHtml(s) {
@@ -1206,7 +1206,7 @@ function showSummary(rec) {
     </div>`;
   }).join("");
   els.summaryBody.innerHTML = `
-    <p><b>${rec.reps}</b> 下　平均動作分數 <b>${rec.avgAcc ?? "—"}</b>　今天累積分數 <b>${rec.aiScore}</b></p>
+    <p><b>${rec.reps}</b> 下　平均本次動作分數 <b>${rec.avgAcc ?? "—"}</b>　累積動作分數 <b>${rec.aiScore}</b></p>
     <p class="tiny">熱量（估） ${rec.kcal} kcal　心率 ${rec.avgHr ?? "—"} bpm　主要問題：${escapeHtml(rec.mainIssues || "無")}</p>
     <div class="rep-list">${items || '<p class="tiny">無逐下資料</p>'}</div>
   `;
@@ -1615,11 +1615,11 @@ function showHint(text) {
 }
 els.hintAcc?.addEventListener("click", (e) => {
   e.stopPropagation();
-  showHint("這下動作分數：看深度、背、膝蓋、速度評分（0–100）。");
+  showHint("本次動作分數：看深度、背、膝蓋、速度評分（0–100）。");
 });
 els.hintScore?.addEventListener("click", (e) => {
   e.stopPropagation();
-  showHint("今天累積分數：每下動作分數加總。");
+  showHint("累積動作分數：每次動作分數加總。");
 });
 
 els.btnSettings.addEventListener("click", () => {
@@ -1679,7 +1679,7 @@ els.btnCloseSummary.addEventListener("click", () => els.summaryModal.classList.r
 
 els.btnExport.addEventListener("click", () => {
   const list = loadHistory();
-  const header = "日期,次數,組數,平均深度,最深,平均前傾,平均動作分數,今天累積分數,熱量kcal,心率,檢視,主要問題\n";
+  const header = "日期,次數,組數,平均深度,最深,平均前傾,平均本次動作分數,累積動作分數,熱量kcal,心率,檢視,主要問題\n";
   const body = list.map(s =>
     [s.date, s.reps, s.sets ?? "", s.avgDepth ?? "", s.bestDepth ?? "", s.avgLean ?? "",
       s.avgAcc ?? "", s.aiScore ?? "", s.kcal ?? "", s.avgHr ?? "", s.view ?? "", s.mainIssues ?? ""]
@@ -1712,7 +1712,7 @@ initVoices();
 
 window.__squatCoach = {
   angleDeg, torsoLeanDeg, lumbarFlexProxy, estimateLumbar, scoreRep,
-  settings, loadHistory, pickDefaultVoice, scoreVoice, version: "2.2.0"
+  settings, loadHistory, pickDefaultVoice, scoreVoice, version: "2.2.1"
 };
 </script>
 </body>
