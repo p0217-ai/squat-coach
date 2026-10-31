@@ -607,29 +607,20 @@ function speak(text, force = false) {
   } catch {}
 }
 
-/** Count first, then optional short fix/praise; cancels stale queue. */
+/** One utterance: always 「第N下」 first, then optional fix/praise. Order guaranteed. */
 function speakRepThen(repNum, followText) {
   if (!els.chkVoice.checked) return;
   try {
     if (!window.speechSynthesis) return;
     speakChain += 1;
-    const my = speakChain;
     window.speechSynthesis.cancel();
-    const count = new SpeechSynthesisUtterance(String(repNum));
-    count.lang = "zh-TW";
-    count.rate = 1.28;
-    if (followText) {
-      count.onend = () => {
-        if (my !== speakChain || !els.chkVoice.checked) return;
-        try {
-          const u = new SpeechSynthesisUtterance(followText);
-          u.lang = "zh-TW";
-          u.rate = 1.25;
-          window.speechSynthesis.speak(u);
-        } catch {}
-      };
-    }
-    window.speechSynthesis.speak(count);
+    const text = followText
+      ? `第${repNum}下，${followText}`
+      : `第${repNum}下`;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "zh-TW";
+    u.rate = 1.28;
+    window.speechSynthesis.speak(u);
   } catch {}
 }
 
@@ -1550,7 +1541,7 @@ updateRing();
 
 window.__squatCoach = {
   angleDeg, torsoLeanDeg, lumbarFlexProxy, estimateLumbar, scoreRep,
-  settings, loadHistory, version: "2.1.0"
+  settings, loadHistory, version: "2.1.1"
 };
 </script>
 </body>
